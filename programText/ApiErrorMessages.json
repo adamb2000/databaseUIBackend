@@ -1,0 +1,7 @@
+{
+    "incorrectPassword" : "Incorrect Password",
+    "inactiveAccount" : "User Account is Inactive",
+    "userNotFound" : "User Does not Exist",
+    "unhandledError" : "Unhandled Server Error",
+    "duplicateAccount" : "Account already exists"
+}
