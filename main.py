@@ -1,9 +1,10 @@
 #flask --app main run --debug
 from sqlalchemy import exc
-from flask import Flask, request, abort, jsonify
+from flask import Flask, request, abort, jsonify, g
 from flask_cors import CORS, cross_origin
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required
+from flask_login import current_user, LoginManager, UserMixin, login_user, logout_user, login_required
+from flask_bcrypt import Bcrypt 
 import json
 
 admin_role_id = 0
@@ -15,6 +16,8 @@ CORS(app, support_credentials=True)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///db.users"
 app.config["SECRET_KEY"] = "abc"
 db = SQLAlchemy()
+
+bcrypt = Bcrypt(app)
  
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -30,6 +33,7 @@ class Users(UserMixin, db.Model):
     username = db.Column(db.String(250), unique=True, nullable=False)
     password = db.Column(db.String(250), nullable=False)
     roles = db.relationship('UserRoles', backref='users', lazy='dynamic')
+    settings = db.relationship('UserSettings', backref='users', lazy='dynamic')
 
 class Roles(db.Model):
     __tablename__ = "roles"
@@ -44,6 +48,20 @@ class UserRoles(db.Model):
     role_id = db.Column(db.Integer, db.ForeignKey('roles.id'))
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
 
+class UserSettings(db.Model):
+    __tablename__ = "userSettings"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    appearance = db.Column(db.String(10), nullable=False)
+    fontSize = db.Column(db.Integer, nullable=False)
+
+    def asDict(self):
+        return {
+            'id':self.id,
+            'userId': self.user_id,
+            'appearance': self.appearance,
+            'fontSize': self.fontSize
+        }
 
 with app.app_context():
     db.create_all()
@@ -63,15 +81,15 @@ def register():
     try:
         username = request.json['username']
         password = request.json['password']
-        new_user = Users(username=username,password=password)
+        hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+        new_user = Users(username=username,password=hashed_password)
         db.session.add(new_user)
         db.session.commit()
         db.session.add(UserRoles(user_id=new_user.id,role_id=stduser_role_id))
+        db.session.add(UserSettings(user_id=new_user.id,appearance='light',fontSize=10))
         db.session.commit()
         return  {
             "username": username,
-            "admin":False,
-            "authenticated": True
         }
     except exc.IntegrityError:
         return handleErrorResponse('duplicateAccount',403)
@@ -86,18 +104,13 @@ def login():
         password = request.json['password']
         user = Users.query.filter_by(username=username).first()
         if user:
-            if user.password == password:
+            if bcrypt.check_password_hash(user.password, password):
                 if login_user(user):                  
                     rolesList = []
-                    print(user.roles.all()[0])
                     user_roles = db.session.query(UserRoles).join(Users.roles).filter(Users.id==user.id).all()
                     for role in user_roles:
                         rolesList.append(db.session.query(Roles.name).filter(Roles.id == role.role_id).first().name)
-                
-                    print(rolesList)
-                    #     rolesList.append(role.name)
-                    # print(rolesList)
-                    return{'id': user.id, 'username': username, 'roles': rolesList}
+                    return{'id': user.id, 'username': user.username, 'roles': rolesList}
                 else:
                     return handleErrorResponse('inactiveAccount',401)
             else:
@@ -115,6 +128,13 @@ def logout():
     response = jsonify({'auth':False})
     response.status_code = 200
     return response
+
+@app.route('/userSettings',methods=['PUT','GET'])
+@cross_origin(supports_credentials=True)
+@login_required
+def userSettings():
+    settings = db.session.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
+    return settings.asDict()
 
 def handleErrorResponse(message, code):
     response = jsonify({'message': errorResponses[message]})
