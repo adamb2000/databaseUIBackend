@@ -3,5 +3,6 @@
     "inactiveAccount" : "User Account is Inactive",
     "userNotFound" : "User Does not Exist",
     "unhandledError" : "Unhandled Server Error",
-    "duplicateAccount" : "Account already exists"
+    "duplicateAccount" : "Account already exists",
+    "unauthorised": "Not authorised to view content"
 }

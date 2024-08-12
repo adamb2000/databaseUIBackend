@@ -75,6 +75,10 @@ with app.app_context():
 data = open('./programText/ApiErrorMessages.json')
 errorResponses = json.load(data)
 
+
+
+
+
 @app.route("/register", methods=['POST'])
 @cross_origin(supports_credentials=True)
 def register():
@@ -93,32 +97,28 @@ def register():
         }
     except exc.IntegrityError:
         return handleErrorResponse('duplicateAccount',403)
-    # except:
-    #     return handleErrorResponse('unhandledError',500)
+    except:
+        return handleErrorResponse('unhandledError',500)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
 @app.route("/login", methods=['POST'])
 @cross_origin(supports_credentials=True)
 def login():
-    #try:
+    try:
         username = request.json['username']
         password = request.json['password']
         user = Users.query.filter_by(username=username).first()
         if user:
             if bcrypt.check_password_hash(user.password, password):
                 if login_user(user):                  
-                    rolesList = []
-                    user_roles = db.session.query(UserRoles).join(Users.roles).filter(Users.id==user.id).all()
-                    for role in user_roles:
-                        rolesList.append(db.session.query(Roles.name).filter(Roles.id == role.role_id).first().name)
-                    return{'id': user.id, 'username': user.username, 'roles': rolesList}
+                    return getUserDetails(user)
                 else:
                     return handleErrorResponse('inactiveAccount',401)
             else:
                 return handleErrorResponse('incorrectPassword',401)
         else:
             return handleErrorResponse('userNotFound',404)
-    # except:
-    #     return handleErrorResponse('unhandledError',500)
+    except:
+        return handleErrorResponse('unhandledError',500)
     
 @app.route('/logout',methods=['POST'])
 @cross_origin(supports_credentials=True)
@@ -133,11 +133,37 @@ def logout():
 @cross_origin(supports_credentials=True)
 @login_required
 def userSettings():
-    settings = db.session.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
-    return settings.asDict()
+    try:
+        settings = UserSettings.query.filter(UserSettings.user_id == current_user.id).first()
+        if request.method == 'PUT': 
+            newVal = request.json['userSettings']
+            settings.appearance = newVal['appearance']
+            settings.fontSize = newVal['fontSize']
+            db.session.commit()    
+        return settings.asDict()
+    except:
+        handleErrorResponse('unhandledError',500)
+
+@app.route('/userDetails',methods=['GET'])
+@cross_origin(supports_credentials=True)
+@login_required
+def userDetails():
+    try:
+        return getUserDetails(db.session.query(Users).filter(Users.id == current_user.id).first())
+    except:
+            handleErrorResponse('unhandledError',500)
+
+
+
 
 def handleErrorResponse(message, code):
     response = jsonify({'message': errorResponses[message]})
     response.status_code = code
     return response
 
+def getUserDetails(user):
+    rolesList = []
+    user_roles = db.session.query(UserRoles).join(Users.roles).filter(Users.id==user.id).all()
+    for role in user_roles:
+        rolesList.append(db.session.query(Roles.name).filter(Roles.id == role.role_id).first().name)
+    return{'id': user.id, 'username': user.username, 'roles': rolesList}
