@@ -153,8 +153,28 @@ def userDetails():
     except:
             handleErrorResponse('unhandledError',500)
 
-
-
+@app.route('/updatePassword',methods=['PUT'])
+@cross_origin(supports_credentials=True)
+@login_required
+def updatePassword():
+    try:
+        id = request.json['id']
+        oldPassword = request.json['oldPassword']
+        newPassword = request.json['newPassword']
+        if(current_user.id == id):
+            user = Users.query.filter(Users.id==id).first()
+            if(bcrypt.check_password_hash(user.password, oldPassword)):
+                if(validatePassword(newPassword)):
+                    hashed_password = bcrypt.generate_password_hash(newPassword).decode('utf-8')
+                    user.password = hashed_password
+                    db.session.commit()
+                    return {"success":True}
+            else:
+                return handleErrorResponse('incorrectPassword',403)
+        else:
+            return handleErrorResponse('incorrectPermission', 401)
+    except:
+        return handleErrorResponse('unhandledError',500)
 
 def handleErrorResponse(message, code):
     response = jsonify({'message': errorResponses[message]})
@@ -167,3 +187,6 @@ def getUserDetails(user):
     for role in user_roles:
         rolesList.append(db.session.query(Roles.name).filter(Roles.id == role.role_id).first().name)
     return{'id': user.id, 'username': user.username, 'roles': rolesList}
+
+def validatePassword(password):
+    return True

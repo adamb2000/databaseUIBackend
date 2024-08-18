@@ -4,5 +4,6 @@
     "userNotFound" : "User Does not Exist",
     "unhandledError" : "Unhandled Server Error",
     "duplicateAccount" : "Account already exists",
+    "incorrectPermission" : "You do not have the correct permissions to perform this action",
     "unauthorised": "Not authorised to view content"
 }
