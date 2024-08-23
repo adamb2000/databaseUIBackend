@@ -1,10 +1,11 @@
 #flask --app main run --debug
 from sqlalchemy import exc
-from flask import Flask, request, abort, jsonify, g
+from flask import Flask, request, abort, jsonify
 from flask_cors import CORS, cross_origin
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import current_user, LoginManager, UserMixin, login_user, logout_user, login_required
 from flask_bcrypt import Bcrypt 
+import datetime
 import json
 
 admin_role_id = 0
@@ -26,14 +27,16 @@ db.init_app(app)
 @login_manager.user_loader
 def loader_user(user_id):
     return Users.query.get(user_id)
-
 class Users(UserMixin, db.Model):
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(250), unique=True, nullable=False)
     password = db.Column(db.String(250), nullable=False)
+    lastLogin = db.Column(db.String(20))
+    accountCreated = db.Column(db.String(20))
     roles = db.relationship('UserRoles', backref='users', lazy='dynamic')
     settings = db.relationship('UserSettings', backref='users', lazy='dynamic')
+
 
 class Roles(db.Model):
     __tablename__ = "roles"
@@ -54,13 +57,13 @@ class UserSettings(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     appearance = db.Column(db.String(10), nullable=False)
     fontSize = db.Column(db.Integer, nullable=False)
+    name = db.Column(db.String(20))
 
     def asDict(self):
         return {
-            'id':self.id,
-            'userId': self.user_id,
             'appearance': self.appearance,
-            'fontSize': self.fontSize
+            'fontSize': self.fontSize,
+            'name': self.name
         }
 
 with app.app_context():
@@ -70,14 +73,9 @@ with app.app_context():
         stduser_role_id = Roles.query.filter(Roles.name == 'STDUSER').first().id
     except:
         print("FAILED")
-  
 
 data = open('./programText/ApiErrorMessages.json')
 errorResponses = json.load(data)
-
-
-
-
 
 @app.route("/register", methods=['POST'])
 @cross_origin(supports_credentials=True)
@@ -86,7 +84,7 @@ def register():
         username = request.json['username']
         password = request.json['password']
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-        new_user = Users(username=username,password=hashed_password)
+        new_user = Users(username=username,password=hashed_password,accountCreated=datetime.datetime.now().isoformat())
         db.session.add(new_user)
         db.session.commit()
         db.session.add(UserRoles(user_id=new_user.id,role_id=stduser_role_id))
@@ -109,7 +107,9 @@ def login():
         user = Users.query.filter_by(username=username).first()
         if user:
             if bcrypt.check_password_hash(user.password, password):
-                if login_user(user):                  
+                if login_user(user):
+                    user.lastLogin = datetime.datetime.now().isoformat()
+                    db.session.commit()     
                     return getUserDetails(user)
                 else:
                     return handleErrorResponse('inactiveAccount',401)
@@ -139,6 +139,7 @@ def userSettings():
             newVal = request.json['userSettings']
             settings.appearance = newVal['appearance']
             settings.fontSize = newVal['fontSize']
+            settings.name = newVal['name']
             db.session.commit()    
         return settings.asDict()
     except:
@@ -149,7 +150,7 @@ def userSettings():
 @login_required
 def userDetails():
     try:
-        return getUserDetails(db.session.query(Users).filter(Users.id == current_user.id).first())
+        return getUserAccreditation(db.session.query(Users).filter(Users.id == current_user.id).first())
     except:
             handleErrorResponse('unhandledError',500)
 
@@ -176,17 +177,49 @@ def updatePassword():
     except:
         return handleErrorResponse('unhandledError',500)
 
+@app.route('/adminSettings',methods=['GET','PUT'])
+@cross_origin(supports_credentials=True)
+@login_required
+def adminSettings():
+    try:
+        userRoles = getUserRoles(Users.query.filter(Users.id==current_user.id).first())
+        if 'ADMIN' in userRoles:
+            if request.method == 'PUT':
+                print("PUT")
+                return {}
+            elif request.method == 'GET':
+                users = Users.query.all()
+                returnUsers = []
+                for user in users:
+                    returnUsers.append(getUserDetails(user))
+                return returnUsers
+        else:
+            return handleErrorResponse('incorrectPermission',401)
+    except:
+        return handleErrorResponse('unhandledError',500)
+
+
+
+
+#util functions
 def handleErrorResponse(message, code):
     response = jsonify({'message': errorResponses[message]})
     response.status_code = code
     return response
 
+def getUserAccreditation(user):
+    return {'id': user.id, 'username': user.username, 'roles': getUserRoles(user)}
+
 def getUserDetails(user):
+    return {'id':user.id,'username':user.username,'accountCreated':user.accountCreated,'lastLogin':user.lastLogin,'roles':getUserRoles(user)}
+
+def getUserRoles(user):
     rolesList = []
-    user_roles = db.session.query(UserRoles).join(Users.roles).filter(Users.id==user.id).all()
+    user_roles = db.session.query(Roles.name).join(UserRoles).join(Users).filter(Users.id == user.id).all()
     for role in user_roles:
-        rolesList.append(db.session.query(Roles.name).filter(Roles.id == role.role_id).first().name)
-    return{'id': user.id, 'username': user.username, 'roles': rolesList}
+        rolesList.append(role[0])
+    return rolesList
 
 def validatePassword(password):
     return True
+
